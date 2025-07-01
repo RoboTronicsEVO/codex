@@ -89,6 +89,13 @@ unsigned long lastSwitchTime_DEV[4] = {0, 0, 0, 0};
 unsigned long lastSendTime_DEV[4] = {0, 0, 0, 0};
 bool deviceStates[4] = {false, false, false, false};
 
+bool readVerified(int pin) {
+  bool v1 = digitalRead(pin);
+  delayMicroseconds(50);
+  bool v2 = digitalRead(pin);
+  return v1 == v2 ? v1 : LOW;
+}
+
 struct RetryInfo {
   bool pending;
   unsigned long lastTryTime;
@@ -182,9 +189,11 @@ void setup() {
   
   delayMicroseconds(100000); // 100ms in microseconds
 
-  // Optimize for maximum speed and reliability
+  // Optimize for reliability and range
   esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
-  esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_54M);
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+  esp_wifi_set_max_tx_power(78); // ~20dBm
+  esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_1M_L);
 
   esp_now_init();
   esp_now_register_send_cb(onDataSent);
@@ -257,7 +266,7 @@ void handleDeviceSwitches() {
   int switchPins[] = {SW1_DEV, SW2_DEV, SW3_DEV, SW4_DEV};
 
   for (int i = 0; i < 4; i++) {
-    bool reading = digitalRead(switchPins[i]);
+    bool reading = readVerified(switchPins[i]);
     
     if (reading != lastSwitchState_DEV[i]) {
       lastSwitchTime_DEV[i] = currentTime;

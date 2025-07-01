@@ -134,8 +134,10 @@ void setup() {
   delayMicroseconds(100000); // 100ms in microseconds
 
   esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+  esp_wifi_set_max_tx_power(78); // ~20dBm
   esp_now_init();
-  esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_54M);
+  esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_1M_L);
   esp_now_register_recv_cb(onDataRecv_merged);
   esp_now_register_send_cb(onDataSent_merged);
 
@@ -173,6 +175,9 @@ void loop() {
     checkConnection();
     lastHeartbeatCheckTime = currentTime;
   }
+
+  // Update non-blocking soft start
+  updateSoftStart();
 
   // PRIORITY 2: Safety check (critical for motor control systems)
   if (sensorsEnabled && !checkSensorSafety()) {
@@ -312,7 +317,7 @@ void controlDevice(int switchNum, bool turnOn) {
         if (relay1On) {
           digitalWrite(RELAY1, HIGH);
           delayMicroseconds(RELAY_SETTLE_US); // 10ms relay settle
-          softStart();
+          startSoftStart();
         } else {
           stopSoftStart();
           digitalWrite(RELAY1, LOW);
@@ -398,7 +403,7 @@ void handleButtonCommand() {
       if (relay1On) {
         digitalWrite(RELAY1, HIGH);
         delayMicroseconds(RELAY_SETTLE_US); // 10ms
-        softStart();
+        startSoftStart();
       } else {
         stopSoftStart();
         digitalWrite(RELAY1, LOW);
@@ -439,16 +444,33 @@ void sendStatusData() {
 }
 
 // MODIFIED: Ultra-fast soft start with 1/10 delay (4ms per step instead of 40ms)
-void softStart() {
+// Non-blocking soft start handling
+bool softStartActive = false;
+unsigned long softStartLastStep = 0;
+int softStartDuty = 0;
+
+void startSoftStart() {
+  softStartActive = true;
+  softStartDuty = 0;
+  softStartLastStep = micros();
   digitalWrite(RELAY1, HIGH);
-  for (int dutyCycle = 0; dutyCycle <= 255; dutyCycle += 5) {
-    ledcWrite(SOFT_START_PWM_PIN, dutyCycle);
-    delayMicroseconds(SOFT_START_STEP_US); // 4ms per step (1/10 of original 40ms)
+  ledcWrite(SOFT_START_PWM_PIN, softStartDuty);
+}
+
+void updateSoftStart() {
+  if (softStartActive && micros() - softStartLastStep >= SOFT_START_STEP_US) {
+    softStartDuty += 5;
+    if (softStartDuty >= 255) {
+      softStartDuty = 255;
+      softStartActive = false;
+    }
+    ledcWrite(SOFT_START_PWM_PIN, softStartDuty);
+    softStartLastStep = micros();
   }
-  ledcWrite(SOFT_START_PWM_PIN, 255);
 }
 
 void stopSoftStart() {
+  softStartActive = false;
   ledcWrite(SOFT_START_PWM_PIN, 0);
 }
 
